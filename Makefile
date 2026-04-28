@@ -16,12 +16,12 @@ clean:
 	rm -f $(TARGET) *.o *.bin
 
 run1:
-	mpirun --mca btl_tcp_if_include 192.168.26.0/24 -np 1 --host master ./$(TARGET) output.bin
+	mpirun --mca btl_tcp_if_include 192.168.26.0/24 -np 1 --host master ./$(TARGET) test.txt out.bin
 
 run2:
-	mpirun --mca btl_tcp_if_include 192.168.26.0/24 -np 2 --host master,n01 ./$(TARGET) output.bin
+	mpirun --mca btl_tcp_if_include 192.168.26.0/24 -np 2 --host master,n01 ./$(TARGET) test.txt out.bin
 
 run4:
-	mpirun --mca btl_tcp_if_include 192.168.26.0/24 -np 4 --host master,n01,n02,n03 ./$(TARGET) output.bin
+	mpirun --mca btl_tcp_if_include 192.168.26.0/24 -np 4 --host master,n01,n02,n03 ./$(TARGET) test.txt out.bin
 
 .PHONY: all clean run1 run2 run4
