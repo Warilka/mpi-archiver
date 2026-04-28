@@ -2,29 +2,26 @@ CC = mpicc
 CFLAGS = -Wall -O2 -I/storage/user/libs/zlib/include
 LDFLAGS = -L/storage/user/libs/zlib/lib -lz -Wl,-rpath,/storage/user/libs/zlib/lib
 TARGET = archiver
-OBJS = main.o file_io.o compress.o
+OBJS = main.o
 
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) -o $(TARGET) $(OBJS) $(LDFLAGS)
 
-main.o: main.c file_io.h compress.h
+main.o: main.c
 	$(CC) $(CFLAGS) -c main.c
 
-file_io.o: file_io.c file_io.h
-	$(CC) $(CFLAGS) -c file_io.c
-
-compress.o: compress.c compress.h
-	$(CC) $(CFLAGS) -c compress.c
-
 clean:
-	rm -f $(TARGET) *.o compressed.bin
+	rm -f $(TARGET) *.o *.bin
+
+run1:
+	mpirun --mca btl_tcp_if_include 192.168.26.0/24 -np 1 --host master ./$(TARGET) output.bin
 
 run2:
-	mpirun -np 2 --host master,n01 ./$(TARGET) compress test.txt compressed.bin
+	mpirun --mca btl_tcp_if_include 192.168.26.0/24 -np 2 --host master,n01 ./$(TARGET) output.bin
 
 run4:
-	mpirun -np 4 --host master,n01,n02,n03 ./$(TARGET) compress test.txt compressed.bin
+	mpirun --mca btl_tcp_if_include 192.168.26.0/24 -np 4 --host master,n01,n02,n03 ./$(TARGET) output.bin
 
-.PHONY: all clean run2 run4
+.PHONY: all clean run1 run2 run4

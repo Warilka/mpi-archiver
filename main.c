@@ -3,121 +3,121 @@
 #include <stdlib.h>
 #include <string.h>
 #include <zlib.h>
-#include "file_io.h"
-#include "compress.h"
+#include <time.h>
 
-#define HEADER_SIZE (sizeof(int) * 2)
+#define BLOCK_SIZE (128 * 1024 * 1024)  // 128 МБ на процесс
 
 int main(int argc, char* argv[]) {
     int rank, size;
-    
+
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    
-    if (argc < 3) {
+
+    if (argc < 2) {
         if (rank == 0) {
-            printf("Usage: %s <compress|decompress> <input_file> [output_file]\n", argv[0]);
+            printf("Usage: %s <output_file>\n", argv[0]);
         }
         MPI_Finalize();
         return 1;
     }
-    
-    char* mode = argv[1];
-    char* input_file = argv[2];
-    char* output_file = argv[3] ? argv[3] : "output.bin";
-    
-    if (strcmp(mode, "compress") == 0) {
-        unsigned char* data = NULL;
-        long file_size = 0;
-        
-        if (rank == 0) {
-            data = read_file(input_file, &file_size);
-            if (!data) MPI_Abort(MPI_COMM_WORLD, 1);
-        }
-        
-        MPI_Bcast(&file_size, 1, MPI_LONG, 0, MPI_COMM_WORLD);
-        
-        long block_size = file_size / size;
-        long remainder = file_size % size;
-        long my_block_size = block_size + (rank < remainder ? 1 : 0);
-        
-        unsigned char* block = (unsigned char*)malloc(my_block_size);
-        unsigned char* compressed = (unsigned char*)malloc(compressBound(my_block_size));
-        
-        int* send_counts = NULL;
-        int* displacements = NULL;
-        
-        if (rank == 0) {
-            send_counts = (int*)malloc(size * sizeof(int));
-            displacements = (int*)malloc(size * sizeof(int));
-            long offset = 0;
-            for (int i = 0; i < size; i++) {
-                send_counts[i] = block_size + (i < remainder ? 1 : 0);
-                displacements[i] = offset;
-                offset += send_counts[i];
-            }
-        }
-        
-        MPI_Scatterv(data, send_counts, displacements, MPI_UNSIGNED_CHAR,
-                     block, my_block_size, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
-        
-        int compressed_size = compress_block(block, my_block_size,
-                                             compressed, compressBound(my_block_size));
-        
-        printf("Process %d: %ld -> %d bytes\n", rank, my_block_size, compressed_size);
-        
-        int* all_sizes = (int*)malloc(size * sizeof(int));
-        MPI_Gather(&compressed_size, 1, MPI_INT, all_sizes, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        
-        int* recv_counts = NULL;
-        int* recv_disps = NULL;
-        unsigned char* all_compressed = NULL;
-        
-        if (rank == 0) {
-            recv_counts = (int*)malloc(size * sizeof(int));
-            recv_disps = (int*)malloc(size * sizeof(int));
-            int total = 0;
-            for (int i = 0; i < size; i++) {
-                recv_counts[i] = all_sizes[i];
-                recv_disps[i] = total;
-                total += all_sizes[i];
-            }
-            all_compressed = (unsigned char*)malloc(HEADER_SIZE + total);
-            memcpy(all_compressed, &file_size, sizeof(int));
-            memcpy(all_compressed + sizeof(int), &size, sizeof(int));
-        }
-        
-        MPI_Gatherv(compressed, compressed_size, MPI_UNSIGNED_CHAR,
-                    all_compressed + HEADER_SIZE, recv_counts, recv_disps,
-                    MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
-        
-        if (rank == 0) {
-            int total_size = HEADER_SIZE;
-            for (int i = 0; i < size; i++) total_size += all_sizes[i];
-            
-            write_file(output_file, all_compressed, total_size);
-            printf("Done: %ld -> %d bytes (%.1f%%)\n",
-                   file_size, total_size, (1.0 - (float)total_size / file_size) * 100);
-            
-            free(data);
-            free(all_compressed);
-            free(recv_counts);
-            free(recv_disps);
-        }
-        
-        free(block);
-        free(compressed);
-        free(all_sizes);
-        if (rank == 0) {
-            free(send_counts);
-            free(displacements);
-        }
-        
-    } else {
-        if (rank == 0) printf("Mode '%s' not implemented yet.\n", mode);
+
+    char* output_file = argv[1];
+
+    double start_time = MPI_Wtime();
+
+    srand(time(NULL) + rank);
+
+    unsigned char* data = (unsigned char*)malloc(BLOCK_SIZE);
+    unsigned char* compressed = (unsigned char*)malloc(compressBound(BLOCK_SIZE));
+
+    if (!data || !compressed) {
+        printf("Process %d: Memory allocation error\n", rank);
+        MPI_Abort(MPI_COMM_WORLD, 1);
     }
-    
+
+    double gen_start = MPI_Wtime();
+    for (long i = 0; i < BLOCK_SIZE; i++) {
+        data[i] = rand() % 256;
+    }
+    double gen_end = MPI_Wtime();
+
+    double comp_start = MPI_Wtime();
+    uLongf compressed_size = compressBound(BLOCK_SIZE);
+    int result = compress(compressed, &compressed_size, data, BLOCK_SIZE);
+    double comp_end = MPI_Wtime();
+
+    if (result != Z_OK) {
+        printf("Process %d: Compression error\n", rank);
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+
+    double gen_time = gen_end - gen_start;
+    double comp_time = comp_end - comp_start;
+
+    printf("Process %d: generated %d MB in %.3fs, compressed to %lu bytes in %.3fs\n",
+        rank, BLOCK_SIZE / (1024 * 1024), gen_time, compressed_size, comp_time);
+
+    unsigned long* all_sizes = (unsigned long*)malloc(size * sizeof(unsigned long));
+
+    MPI_Gather(&compressed_size, 1, MPI_UNSIGNED_LONG,
+        all_sizes, 1, MPI_UNSIGNED_LONG,
+        0, MPI_COMM_WORLD);
+
+    int* recv_counts = NULL;
+    int* recv_disps = NULL;
+    unsigned char* all_compressed = NULL;
+
+    if (rank == 0) {
+        recv_counts = (int*)malloc(size * sizeof(int));
+        recv_disps = (int*)malloc(size * sizeof(int));
+
+        unsigned long total = 0;
+        for (int i = 0; i < size; i++) {
+            recv_counts[i] = (int)all_sizes[i];
+            recv_disps[i] = total;
+            total += all_sizes[i];
+        }
+
+        all_compressed = (unsigned char*)malloc(total + sizeof(int) * 2);
+        int header_block = BLOCK_SIZE;
+        memcpy(all_compressed, &header_block, sizeof(int));
+        memcpy(all_compressed + sizeof(int), &size, sizeof(int));
+    }
+
+    MPI_Gatherv(compressed, compressed_size, MPI_UNSIGNED_CHAR,
+        all_compressed + sizeof(int) * 2, recv_counts, recv_disps,
+        MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+
+    double end_time = MPI_Wtime();
+
+    if (rank == 0) {
+        unsigned long total_original = (unsigned long)BLOCK_SIZE * size;
+        unsigned long total_compressed = sizeof(int) * 2;
+        for (int i = 0; i < size; i++) {
+            total_compressed += all_sizes[i];
+        }
+
+        printf("Total original:  %lu bytes (%lu MB)\n", total_original, total_original / (1024 * 1024));
+        printf("Total compressed: %lu bytes\n", total_compressed);
+        printf("Total time:       %.4f seconds\n", end_time - start_time);
+        printf("Throughput:       %.2f MB/s\n", total_original / (1024.0 * 1024.0) / (end_time - start_time));
+
+        FILE* f = fopen(output_file, "wb");
+        if (f) {
+            fwrite(all_compressed, 1, total_compressed, f);
+            fclose(f);
+        }
+
+        free(all_compressed);
+        free(recv_counts);
+        free(recv_disps);
+    }
+
+    free(data);
+    free(compressed);
+    free(all_sizes);
+
     MPI_Finalize();
     return 0;
 }
