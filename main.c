@@ -47,13 +47,13 @@ int main(int argc, char* argv[]) {
     fread(my_data, 1, my_size, f);
     fclose(f);
 
-    printf("Process %d: offset=%ld, size=%ld, read done\n", rank, my_offset, my_size);
+    //printf("Process %d: offset=%ld, size=%ld, read done\n", rank, my_offset, my_size);
 
     // === Шаг 4: сжимаем ===
     uLongf comp_size = compressBound(my_size);
     compress(compressed, &comp_size, my_data, my_size);
 
-    printf("Process %d: compressed %ld -> %lu bytes\n", rank, my_size, comp_size);
+    //printf("Process %d: compressed %ld -> %lu bytes\n", rank, my_size, comp_size);
 
     // === Шаг 5: собираем только сжатые данные ===
     unsigned long* all_sizes = (unsigned long*)malloc(size * sizeof(unsigned long));
@@ -92,7 +92,6 @@ int main(int argc, char* argv[]) {
         fwrite(all_compressed, 1, total_comp, fout);
         fclose(fout);
 
-        printf("\n========================================\n");
         printf("File: %s\n", argv[1]);
         printf("Original: %ld bytes (%.1f MB)\n", total_size, total_size / (1024.0 * 1024.0));
         printf("Compressed: %lu bytes\n", total_comp);
@@ -100,7 +99,6 @@ int main(int argc, char* argv[]) {
         printf("Processes: %d\n", size);
         printf("Time: %.4f seconds\n", end_time - start_time);
         printf("Throughput: %.2f MB/s\n", total_size / (1024.0 * 1024.0) / (end_time - start_time));
-        printf("========================================\n");
 
         free(all_compressed);
         free(recv_counts);
